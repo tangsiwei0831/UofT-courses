@@ -1,0 +1,94 @@
+
+#lang racket ; CSC324 — 2023W — Assignment 1 — Evo Implementation
+
+; Task: implement evo according to A1.evo-test.rkt.
+
+(provide
+ (contract-out (evo (any/c . -> . (list/c any/c (hash/c symbol? list?)))))
+ ; Add any helper functions you tested in A1.evo-test.rkt.
+ ; Whether you add contracts to them is optional.
+ #;a-helper)
+
+; · Support: indexer and Void
+
+(provide (contract-out (indexer (any/c . -> . (-> symbol?)))))
+
+(define (indexer prefix)
+  (define last-index -1)
+  (λ ()
+    (local-require (only-in racket/syntax format-symbol))
+    (set! last-index (add1 last-index))
+    (format-symbol "~a~a" prefix last-index)))
+
+; There is no literal nor variable for the void value (although it has a printed
+; representation when printed inside compound values), so we'll name it here and
+; and also export it for testing.
+
+(provide (contract-out (Void void?)))
+
+(define Void (void))
+
+; · evo
+
+; Produce a two-element list with the value and the environment-closure table
+; from evaluating an LCO term.
+(define (evo term)
+
+  ; A mutable table of environments and closures.
+  (define environments-closures (make-hash))
+  
+  ; Iterators to produce indices for environments and closures.
+  (define En (indexer 'E))
+  (define λn (indexer 'λ))
+
+  (define (evaluate-var t E)
+    (define binding (first (hash-ref environments-closures E)))
+    (define nextenv (second (hash-ref environments-closures E)))
+    (if (equal? t (first binding))
+     (second binding)
+     (evaluate-var t nextenv)
+    )
+  )
+
+  (define (evaluate-lam t E λ)
+    (hash-set! environments-closures λ (list t E))
+    λ
+  )
+
+  (define (bind-id body val new-env)
+     (define binding (first (hash-ref environments-closures body)))
+     (define nextenv (second (hash-ref environments-closures body)))
+     (hash-set! environments-closures new-env (list (list (first (second binding)) (box val)) nextenv))
+     (list (first (rest (rest binding))) new-env)
+  )
+
+  (define (evaluate-func func arg E new-env)
+    (if (list? func)
+        (let ((bind-id-rst (bind-id (rec func E) (rec arg E) (En))))
+          (rec (first bind-id-rst) (second bind-id-rst))
+          )
+         ; closure
+        (func (rec arg E)); procedure
+     )
+  )
+
+  ; Task: complete rec.
+  (define (rec t E)
+    (match t
+      ((list 'set! vid term)
+         (set-box! (evaluate-var vid E) (rec term E))
+          Void)
+      (a #:when (symbol? t)
+         (let ((rst (evaluate-var t E)))
+              (if (box? rst)
+                  (unbox (evaluate-var t E))
+                  (evaluate-var t E)))) ;variable
+      ((list 'λ a ... b) (evaluate-lam t E (λn))) ;lambda call
+      ((list func arg) (evaluate-func func arg E (En))) ;function call
+      (_ t) ;value
+   ))
+  
+  
+  (list (rec term (En))
+        (make-immutable-hash (hash->list environments-closures))))
+

@@ -1,0 +1,96 @@
+#lang racket ; CSC324 — 2022W — Assignment 1 — Evo Implementation
+
+; Task: implement evo according to A1.evo-test.rkt.
+
+(require rackunit)
+
+(provide
+ (contract-out (evo (any/c . -> . (list/c any/c (hash/c symbol? list?)))))
+ ; Add any helper functions you tested in A1.evo-test.rkt.
+ ; Whether you add contracts to them is optional.
+ #;a-helper)
+
+; · Support: indexer and Void
+
+(provide (contract-out (indexer (any/c . -> . (-> symbol?)))))
+
+(define (indexer prefix)
+  (define last-index -1)
+  (λ ()
+    (local-require (only-in racket/syntax format-symbol))
+    (set! last-index (add1 last-index))
+    (format-symbol "~a~a" prefix last-index)))
+
+; There is no literal nor variable for the void value (although it has a printed
+; representation when printed inside compound values), so we'll name it here and
+; and also export it for testing.
+
+(provide (contract-out (Void void?)))
+
+(define Void (void))
+
+; · evo
+
+; Produce a two-element list with the value and the environment-closure table
+; from evaluating an LCO term.
+(define (evo term)
+
+  ; A mutable table of environments and closures.
+  (define environments-closures (make-hash))
+  
+  ; Iterators to produce indices for environments and closures.
+  (define En (indexer 'E))
+  (define λn (indexer 'λ))
+
+  ; In-order evaluation of each body term during an enclosing evaluation of a lambda function call in evo
+  (define (rec-eval body_terms E)
+    (cond [(empty? body_terms) E]
+          [else (rec-eval (rest body_terms) (rec (first body_terms) E))]))
+
+  ; Variable lookup function.
+  (define (var_lookup var E)
+    (define curr_binding (first (hash-ref environments-closures E)))
+    (define next_env (second (hash-ref environments-closures E)))
+    (cond [(equal? var (first curr_binding)) (second curr_binding)]
+          [else (var_lookup var next_env)]))
+
+  ; Task: complete rec.
+  (define (rec t E) (match t
+                      ; if t is an assignment term
+                      [(list 'set! b c)
+                       (define update_eval (rec c E))
+                       (define curr_box (var_lookup b E))
+                       (set-box! curr_box update_eval)
+                       Void]
+                      ; if t is a lambda term
+                      [(list 'λ a b)
+                         (define new_clos (λn))
+                         (hash-set! environments-closures new_clos (list t E))
+                         new_clos]
+                      ; if t is a function term and the function is a closure (lambda function)
+                      [(list a b) #:when (list? a)
+                         (define func_eval (rec a E))
+                         (define arg_eval (rec b E))
+                         (define clos (hash-ref environments-closures func_eval))
+                         (define func_id (first (second (first clos))))
+                         (define new_env (En))
+                         (hash-set! environments-closures new_env (list (list func_id (box arg_eval)) (second clos)))
+                         (define stripped_clos (drop (first clos) 2))
+                         (cond [(equal? (length stripped_clos) 1) (rec (first stripped_clos) new_env)]
+                               [else (define res_env (rec-eval (drop-right stripped_clos 1) new_env)) (rec (last stripped_clos) res_env)])]
+                      ; if t is a function term and term a is a racket procedure
+                      [(list a b)
+                         (define racket_proc a)
+                         (define arg_eval (rec b E))
+                         (a arg_eval)]
+                      ; if t is a variable
+                      [a #:when (symbol? t)
+                         (unbox (var_lookup t E))]
+                      ; if t is a literal
+                      [_ t]
+                        ))
+  
+  (list (rec term (En))
+        (make-immutable-hash (hash->list environments-closures))))
+
+

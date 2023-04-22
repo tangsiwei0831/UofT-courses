@@ -1,0 +1,202 @@
+#lang racket
+
+; • CSC324 — 2023W — Exercise 2
+
+; Due: Mon Feb 13th 5PM.
+
+; Higher-order functions and point-free programming
+; A Simple Class of Objects.
+; Variadic Behaviour via Currying.
+; Pattern Matching.
+; Program Analysis and Tail Recursion.
+
+; Implement the five functions, Not, And, tag, Point, and tails as described below
+; (including following the restrictions on their implementations).
+
+(provide (contract-out (Not ((any/c . -> . boolean?) . -> . (any/c . -> . boolean?)))
+                       (And ((any/c . -> . boolean?)
+                             (any/c . -> . boolean?)
+                             . -> . (any/c . -> . boolean?)))
+                       (tag (any/c . -> . (any/c . -> . boolean?)))
+                       (Point (number? number? . -> . (symbol? . -> . any/c)))
+                       (tails (any/c . -> . list?))))
+
+(require rackunit)
+(module+ test (require rackunit))
+
+; · Not / And
+
+; Not: take a unary predicate and produce its negation.
+; And: take two unary predicates and produce their conjunction.
+
+
+(module+ test
+  
+  (check-true ((Not odd?) 324))
+  (check-false ((Not odd?) 207))
+
+  (check-true ((And number? even?) 324))
+  (check-false ((And number? even?) 207))
+  (check-false ((And number? even?) "324")))
+
+(define (Not p?)
+  (λ(v)
+    (not ( p? v ))))
+
+(define (And p? q?)
+  (λ(v)
+    (and ( p? v ) ( q? v ))))
+
+
+; · tag
+
+; Take a value v and produce a unary predicate that determines whether
+; its argument is a non-empty list starting with v.
+
+
+(module+ test
+  (check-false ((tag 'img) 324))
+  (check-false ((tag 'img) (list)))
+  (check-false ((tag 'img) (list 'p "hi")))
+  (check-true ((tag 'img) (list 'img)))
+  (check-true ((tag 'img)
+               '(img ((alt "Map of St. George Campus")
+                      (src "/Sites/12/templates/images/english/map_ut.jpg"))))))
+
+; The body implementation is partially completed. Complete it by using the
+; given expression but without mentioning the parameter t again — this is
+; known as “point-free” programming (the parameter is consider the “point”).
+; The earlier functions you defined support point-free programming: use those.
+
+(define (tag t)
+  (And
+   (And list?( Not empty? ))
+       (compose (λ (v) (equal? t v)) first)))
+
+
+; · A Point Class
+
+; The Point function behaves as the single constructor for a “class”.
+; Calling it produces an “instance/object” of the class.
+;
+; Instance variables are not directly accessible.
+;
+; Instance methods are invoked by calling an instance with a symbol for the
+; name of the method (in early OO this was referred to as sending a message).
+; Although one can define variadic functions in racket, we will use a
+; fundamental emulation technique from the Lambda Calculus: if a method
+; needs an argument then it returns a function that can be called with
+; the remaining arguments (this is a form of “currying”). Study the test
+; cases to determine which methods produce such a function, what the arity
+; of that function is, and what datatype that function produces.
+
+; Implement Point.
+
+; Do not use if, cond, nor equal?. Instead, use match with literal patterns:
+(check-equal? (match 'hi
+                ('hello "hello friend")
+                ('hi "yo"))
+              "yo")
+
+(module+ test
+  (define p (Point 3 4))
+  (check-equal? (p 'x) 3)
+  (check-equal? (p 'y) 4)
+  (check-equal? (p 'size) (sqrt (+ (sqr 3) (sqr 4))))
+  (check-equal? (((p 'scale) 5) 'x) (* 3 5))
+  (check-equal? (((p 'scale) 5) 'size) 25)
+  (check-equal? (((p 'add) (Point 2 8)) 'y) 12)
+  (check-equal? (((p 'add) (Point 2 8)) 'size) 13))
+
+(define (Point x y)
+  (λ (msg)
+    (match msg
+      ('x x)
+      ('y y)
+      ('size (sqrt (+ (sqr x) (sqr y))))
+      ('scale (λ (m) (λ (n) (* ((Point x y) n) m))))
+      ('add
+       (λ (m) (λ (n)
+                ((Point (+ x (m 'x)) (+ y (m 'y)))
+                 n))))
+    )))
+
+; · tails
+
+; Consider a subset of racket with the following grammar:
+;   expression :=   literal
+;                 | identifier
+;                 | (and expression ... consequent-expression)
+;                 | (if condition-expression
+;                       consequent-expression
+;                       alternative-expression)
+;                 | (function-expression argument-expression ...)
+; Recall that "..." is Kleene-* (meaning ”zero or more of the previous”).
+
+; A sub-expression e′ of an expression e is “in tail position with respect to e”
+; iff: if e′ (which could be e) is evaluated during the evaluation of e then
+; the value of e′ is used as the value of e.
+
+; So, a literal or identifier is in tail position wrt itself (and contains
+; no sub-expressions).
+; A function call is in tail position wrt itself, and contains no other
+; sub-expressions that are in tail position wrt it.
+; For (and expression ... consequent-expression), the sub-expressions in
+; tail position wrt it are the sub-expressions of consequent-expression that
+; are in tail position wrt consequent-expression.
+; For (if condition-expression consequent-expression alternative-expression)
+; the sub-expressions in tail position wrt to it are the sub-expressions in
+; consequent-expression that are in tail position wrt consequent-expression,
+; and the sub-expressions in alternative-expression that are in tail position
+; wrt alternative-expression.
+
+; Implement tails, which takes a racket value representing an expression
+; matching the grammar, and produces a list of the sub-expressions in
+; tail position wrt it.
+
+; Literals are represented by their corresponding racket values,
+; identifiers by symbols, and parenthesized expressions by lists.
+
+; A straightforward implementation is smaller than the prose description
+; (which you should recognize as a structurally recursive definition of
+; a set and a function on that set).
+
+; Do not use if, cond, nor equal?. Instead, use match with “list” patterns:
+(check-equal? (match '(hi there buddy)
+                ((list x y 'buddy) (list x y))
+                ((list x ... y) (list x y))
+                (whatever whatever))
+              '(hi there))
+(check-equal? (match '(hello there my friend)
+                ((list x y 'buddy) (list x y))
+                ((list x ... y) (list x y))
+                (whatever whatever))
+              '((hello there my) friend))
+(check-equal? (match "yo dawg"
+                ((list x y 'buddy) (list x y))
+                ((list x ... y) (list x y))
+                (whatever whatever))
+              "yo dawg")
+
+
+(module+ test
+  (check-equal? (tails '(if 324 (f (g "h" "i")) (and #false (- 5))))
+                '((f (g "h" "i")) (- 5)))
+  (check-equal? (tails "hi") (list "hi"))
+  (check-equal? (tails '(5)) (list '(5)))
+  (check-equal? (tails '(x)) (list '(x)))
+  (check-equal? (tails '(+ 1 2)) (list '(+ 1 2)))
+  (check-equal? (tails '(f 1 (if cond x y))) (list '(f 1 (if cond x y))))
+  (check-equal? (tails '(and #false (- 5))) (list '(- 5)))
+  (check-equal? (tails '(and (f 1) (g 2))) (list '(g 2)))
+  (check-equal? (tails '(and (f 1 2) (and "hi" (g 3 4)))) (list '(g 3 4)))
+  (check-equal? (tails '(and "hi" (g 3 4))) (list '(g 3 4)))
+  (check-equal? (tails '(g 3 4)) (list '(g 3 4)))
+)
+
+(define (tails e)
+  (match e
+    ((list if ---  a b) (append (tails a) (tails b)))
+    ((list 'and --- c) (tails c))
+    (--- (list ---))
+  ))

@@ -1,0 +1,74 @@
+#lang racket ; CSC324 — 2023W — Assignment 1 — Eve Implementation
+
+; Task: implement eve according to A1.eve-test.rkt.
+
+(provide
+ (contract-out (eve (any/c . -> . (list/c any/c (hash/c symbol? list?)))))
+ ; Add any helper functions you tested in A1.eva-test.rkt.
+ ; Whether you add contracts to them is optional.
+ #;a-helper)
+
+; · Support: indexer
+
+; A constructor for a zero-arity function that when called successively
+; produces symbols of the form prefix0 prefix1 prefix2 etc.
+
+(provide (contract-out (indexer (any/c . -> . (-> symbol?)))))
+
+(define (indexer prefix)
+  (define last-index -1)
+  (λ ()
+    (local-require (only-in racket/syntax format-symbol))
+    (set! last-index (add1 last-index))
+    (format-symbol "~a~a" prefix last-index)))
+
+; · eve
+
+; Produce a two-element list with the value and the environment-closure table
+; from evaluating an LCE term.
+(define (eve term)
+
+  ; A mutable table of environments and closures.
+  ; Task: Look up hash-ref and hash-set! in the racket documentation.
+  (define environments-closures (make-hash))
+  
+  ; Iterators to produce indices for environments and closures.
+  (define En (indexer 'E))
+  (define λn (indexer 'λ))
+
+  ; Task: complete rec.
+  (define (evaluate-var t E)
+    (define binding (first (hash-ref environments-closures E)))
+    (define nextenv (second (hash-ref environments-closures E)))
+    (if 
+     (equal? t (first binding))
+     (second binding)
+     (evaluate-var t nextenv)
+    )
+  )
+
+  (define (evaluate-lam t E λ)
+    (hash-set! environments-closures λ (list t E))
+    λ
+  )
+
+  (define (bind-id body val new-env)
+     (define binding (first (hash-ref environments-closures body)))
+     (define nextenv (second (hash-ref environments-closures body)))
+     (hash-set! environments-closures new-env (list (list (first (second binding)) val) nextenv))
+     (list (last binding) new-env)
+  )
+
+  (define (rec t E)
+    (match t
+      (a #:when (symbol? t) (evaluate-var t E)) ;variable
+      ((list 'λ id body) (evaluate-lam t E (λn))) ;lambda call
+      ((list func arg)
+            (define bind-id-rst (bind-id (rec func E) (rec arg E) (En)))
+            (rec (first bind-id-rst) (second bind-id-rst))) ;function call
+      (_ t) ;value
+  ))
+  
+  (list (rec term (En))
+        (make-immutable-hash (hash->list environments-closures)))
+  )
