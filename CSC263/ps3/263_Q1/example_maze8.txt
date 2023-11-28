@@ -1,0 +1,8 @@
+5
+5
+[(S, SE): B]; [(S): Y]; [(W, E): B]; [(SW): R]; [(W): B]
+[(N, S): Y]; [(S, NE): Y]; [(goal): ]; [(W, SW): B]; [(S, W): B]
+[(N, S): B]; [(E): B]; [(NW, SE): B]; [(N, SW, SE): B]; [(N): B]
+[(N, E): B]; [(E, NE): B]; [(E, SE): B]; [(SE, NW): B]; [(N): R]
+[(E): Y]; [(W, E): B]; [(W, NE): B]; [(N, NE): B]; [(N): R]
+(4, 2)
